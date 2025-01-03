@@ -169,6 +169,7 @@ def process_event(event, say):
         thread_ts = event_data.get("thread_ts")
         if not thread_ts:
             thread_ts = event.get("ts")
+            logger.info(thread_ts)
             #logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
             return  # Exit early if no valid timestamp is found
 
