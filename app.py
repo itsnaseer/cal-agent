@@ -252,7 +252,7 @@ def is_duplicate_event(event_id):
 def handle_mention(event, say, ack):
     ack()
     logger.info(f"received event {event}")
-   # process_event(event,say)
+    process_event(event,say)
 
 # Handle agent DMs
 @app.event("message")
