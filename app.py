@@ -171,6 +171,7 @@ def handle_message_im(event, say):
     """
     try:
         user_id = event.get("user")
+        team_id = event.get("team")
         text = event.get("text", "").strip()
         logger.info(f"Direct message received from user {user_id}: {text}")
 
