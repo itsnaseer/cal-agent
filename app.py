@@ -157,33 +157,27 @@ def summarize_thread(message_context):
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
     try:
-        # Access event payload and check for message deletion
-        event = event.get("event", {})
-        if event.get("subtype") == "message_deleted":
+        # Access the core event data
+        event_data = event.get("event", {})
+        
+        # Ignore message deletion events
+        if event_data.get("subtype") == "message_deleted":
             logger.info("Ignoring deleted message event.")
             return
 
-        # Ensure thread_ts or ts is available
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        # Determine thread_ts or fallback to ts
+        thread_ts = event_data.get("thread_ts") or event_data.get("ts")
         if not thread_ts:
             logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
-            return
+            return  # Exit early if no valid timestamp is found
 
-        # Extract message details
-        user_message = event.get("text", "").strip()
-        channel_id = event.get("channel")
-        team_id = event.get("team")
+        # Extract necessary details
+        user_message = event_data.get("text", "").strip()
+        channel_id = event_data.get("channel")
+        team_id = event_data.get("team")
 
-        # Log event details for debugging
-        logger.info(f"Processing event: user_message={user_message}, thread_ts={thread_ts}, channel_id={channel_id}")
-
-        team_id = event.get("team")
-        channel_id = event.get("channel")
-
-        # Check for duplicate events
-        if is_duplicate_event(event_id):
-            logger.info(f"Duplicate event ignored: {event_id}")
-            return
+        # Log the extracted data for debugging
+        logger.info(f"Processing event: user_message='{user_message}', thread_ts='{thread_ts}', channel_id='{channel_id}'")
 
         # Fetch context if part of a thread
         message_context = ""
