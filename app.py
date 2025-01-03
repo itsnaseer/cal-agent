@@ -236,10 +236,22 @@ def process_event(event, say):
         logger.error(f"Error processing event: {e}")
         say(text="I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
 
+processed_events = set()
+
+def is_duplicate_event(event_id):
+    if event_id in processed_events:
+        return True
+    processed_events.add(event_id)
+    # Optional: Clear old event IDs from the set after a while to free memory.
+    return False
+
 # Event Listener: Handle Mentions
 @app.event("app_mention")
 def handle_mention(event, say, ack):
     ack()
+    if is_duplicate_event(event["event_id"]):
+        logger.info(f"Duplicate event ignored: {event['event_id']}")
+        return
     process_event(event,say)
 
 # Handle agent DMs
