@@ -4,6 +4,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from openai import ChatCompletion
 from dotenv import load_dotenv
+import ast
 
 # Load environment variables
 load_dotenv()
@@ -138,63 +139,116 @@ def format_combined_results(slack_results):
     response = f"{summary}\n\n" + "\n".join(detailed_results)
     return response
 
+def summarize_thread(message_context):
+    thread_summary=ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an intelligent assistant."},
+                 {
+                    "role": "user",
+                    "content": (f"Summarize the following messages:\n{message_context}."),
+                },
+            ],
+            api_key=OPENAI_API_KEY
+        )
+    refined_summary=thread_summary["choices"][0]["message"]["content"].strip()
+    return refined_summary
+
+# Common Processing Function-- parse the message and prepare for next steps. 
+def process_event(event, say):
+    try:
+        #ignore message deleted events
+        if event.get("subtype") == "message_deleted":
+            logger.info("Ignoring deleted message event.")
+            return
+        # pull out relevant message details from the payload
+        user_message = event.get("text", "").strip()
+        message_ts = event.get("ts")
+        bot_user_id = app.client.auth_test()["user_id"]
+        thread_ts = event.get("thread_ts", event["ts"])  #Use thread_ts if available, otherwise use message ts
+        team_id = event.get("team")
+        channel_id=event.get("channel")
+
+        message_context = ""
+        if "thread_ts" in event:
+            try:
+                replies = app.client.conversations_replies(
+                    channel=channel_id, ts=thread_ts
+                )
+                message_context = "\n".join(
+                     [
+                        f"<@{reply.get('user', 'unknown')}>: {reply.get('text', '')}"
+                        for reply in replies.get("messages", [])
+                    ]
+                )
+            except Exception as e:
+                logger.warning(f"failed to fetch conversation contest {e}")
+        
+        # determine intent
+        response = ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an intelligent assistant."},
+                 {
+                    "role": "user",
+                    "content": (
+                        f"Here are some messages to use as background: {message_context}. "
+                        f"Use that context to determine the intent of this message: {user_message}. "
+                        f"Respond with JSON {{'intent': 'Slack Search', 'Other', 'Summarize Thread'}}."
+                    ),
+                },
+            ],
+            api_key=OPENAI_API_KEY
+        )
+
+        # Parse the response to extract the intent
+        assistant_response = response["choices"][0]["message"]["content"].strip()
+        try:
+            # Extract the assistant's response content
+            assistant_response = response["choices"][0]["message"]["content"].strip()
+            
+            # Safely parse the JSON-like string using ast.literal_eval
+            try:
+                intent_data = ast.literal_eval(assistant_response)
+                refined_intent = intent_data.get("intent", "Other")
+            except (ValueError, SyntaxError):
+                logger.error("Failed to parse response with ast.literal_eval. Falling back to default intent.")
+                refined_intent = "Other"
+
+            logger.info(f"Determined intent: {refined_intent}")
+
+            # Handle intents
+            if refined_intent == "Slack Search":
+                refined_query = refine_query(user_message, bot_user_id)
+                slack_results = search_slack(refined_query, team_id)
+                response = format_combined_results(slack_results)
+                say(text=response, thread_ts=thread_ts)
+            elif refined_intent == "Summarize Thread":
+                response=summarize_thread(message_context)
+                say(text=response, thread_ts=thread_ts)
+            else:
+                say("Other - I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
+        except Exception as e:
+            logger.error(f"Error processing event: {e}")
+            say(text="I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
+    
+    except Exception as e:
+        logger.error(f"Error processing event: {e}")
+        say(text="I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
+
 # Event Listener: Handle Mentions
 @app.event("app_mention")
 def handle_mention(event, say):
-    user_message = event.get("text", "").strip()
-    bot_user_id = event.get("bot_id", None) or app.client.auth_test()["user_id"]
-    thread_ts = event.get("thread_ts", event["ts"])  # Use thread_ts if available, otherwise use message ts
-    team_id = event.get("team")
-    logger.info(f"User mentioned Cal: {user_message}")
+    process_event(event,say)
 
-    try:
-        # Step 1: Refine Query (Strip bot mention)
-        refined_query = refine_query(user_message, bot_user_id)
-
-        # Step 2: Search Slack
-        slack_results = search_slack(refined_query, team_id)
-
-        # Step 3: Format Response
-        response = format_combined_results(slack_results)
-
-        # Step 4: Send Response in Thread
-        say(response, thread_ts=thread_ts)
-    except Exception as e:
-        logger.error(f"Error handling mention: {e}")
-        # say("I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
-
+# Handle agent DMs
 @app.event("message")
 def handle_message_im(event, say):
-    """
-    Handles 'message.im' events when a user sends a direct message to the bot.
-    Processes the user's query and responds accordingly.
-    """
-    try:
-        user_id = event.get("user")
-        team_id = event.get("team")
-        text = event.get("text", "").strip()
-        logger.info(f"Direct message received from user {user_id}: {text}")
+    process_event(event, say)
 
-        # Refine the user's query using OpenAI
-        refined_query = refine_query(text, bot_user_id=app.client.auth_test()["user_id"])
-
-        # Perform Slack search based on the refined query
-        slack_results = search_slack(refined_query, team_id)
-
-        # Format the response using AI summarization
-        response = format_combined_results(slack_results)
-
-        # Respond to the user with the summary and results
-        say(
-            text=response,
-            channel=user_id,  # Respond in the direct message
-        )
-    except Exception as e:
-        logger.error(f"Error handling 'message.im' event: {e}")
-        say(
-            text="I'm sorry, I couldn't process your request.",
-            channel=event.get("user"),
-        )
+# @app.event("assistant_thread_started")
+# def handle_assistant_thread_started(event,say):
+#     process_event(event,say)
 
 # Start the App
 if __name__ == "__main__":
