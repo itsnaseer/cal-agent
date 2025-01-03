@@ -157,30 +157,25 @@ def summarize_thread(message_context):
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
     try:
-        # Access event and event_id correctly
+        # Access event payload and check for message deletion
         event = event.get("event", {})
-        event_id = event.get("event_id", "")  # Fetch event_id from the top-level payload
-        
-        # Fallback logic for thread_ts
-        thread_ts = event.get("thread_ts", event.get("ts"))
-        if not thread_ts:
-            logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
-            return
-        # Ignore message deleted events
         if event.get("subtype") == "message_deleted":
             logger.info("Ignoring deleted message event.")
             return
 
-        # Pull out relevant message details from the payload
-        user_message = event.get("text", "").strip()
-        message_ts = event.get("ts", "")
-        bot_user_id = app.client.auth_test()["user_id"]
-        thread_ts = event.get("thread_ts") or event.get("ts") or ""
-
-        # Check if thread_ts exists
+        # Ensure thread_ts or ts is available
+        thread_ts = event.get("thread_ts") or event.get("ts")
         if not thread_ts:
             logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
             return
+
+        # Extract message details
+        user_message = event.get("text", "").strip()
+        channel_id = event.get("channel")
+        team_id = event.get("team")
+
+        # Log event details for debugging
+        logger.info(f"Processing event: user_message={user_message}, thread_ts={thread_ts}, channel_id={channel_id}")
 
         team_id = event.get("team")
         channel_id = event.get("channel")
