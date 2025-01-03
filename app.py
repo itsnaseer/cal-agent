@@ -160,7 +160,12 @@ def process_event(event, say):
         # Access event and event_id correctly
         event = event.get("event", {})
         event_id = event.get("event_id", "")  # Fetch event_id from the top-level payload
-
+        
+        # Fallback logic for thread_ts
+        thread_ts = event.get("thread_ts", event.get("ts"))
+        if not thread_ts:
+            logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
+            return
         # Ignore message deleted events
         if event.get("subtype") == "message_deleted":
             logger.info("Ignoring deleted message event.")
