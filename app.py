@@ -157,6 +157,10 @@ def summarize_thread(message_context):
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
     try:
+        # Access event and event_id correctly
+        event = event.get("event", {})
+        event_id = event.get("event_id", "")  # Fetch event_id from the top-level payload
+        
         #ignore message deleted events
         if event.get("subtype") == "message_deleted":
             logger.info("Ignoring deleted message event.")
@@ -168,6 +172,11 @@ def process_event(event, say):
         thread_ts = event.get("thread_ts", event["ts"])  #Use thread_ts if available, otherwise use message ts
         team_id = event.get("team")
         channel_id=event.get("channel")
+
+         # Check for duplicate events
+        if is_duplicate_event(event_id):
+            logger.info(f"Duplicate event ignored: {event_id}")
+            return
 
         message_context = ""
         if "thread_ts" in event:
@@ -249,9 +258,9 @@ def is_duplicate_event(event_id):
 @app.event("app_mention")
 def handle_mention(event, say, ack):
     ack()
-    if is_duplicate_event(event["event_id"]):
-        logger.info(f"Duplicate event ignored: {event['event_id']}")
-        return
+    # if is_duplicate_event(event["event_id"]):
+    #     logger.info(f"Duplicate event ignored: {event['event_id']}")
+    #     return
     process_event(event,say)
 
 # Handle agent DMs
