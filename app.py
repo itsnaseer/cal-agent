@@ -250,10 +250,8 @@ def is_duplicate_event(event_id):
 @app.event("app_mention")
 def handle_mention(event, say, ack):
     ack()
-    # if is_duplicate_event(event["event_id"]):
-    #     logger.info(f"Duplicate event ignored: {event['event_id']}")
-    #     return
-    process_event(event,say)
+    logger.info(f"received event {event}")
+   # process_event(event,say)
 
 # Handle agent DMs
 @app.event("message")
