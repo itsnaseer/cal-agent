@@ -63,7 +63,8 @@ def search_slack(refined_query):
         response = app.client.search_all(
             token=SLACK_USER_TOKEN,  # Use user token
             query=refined_query,
-            count=10
+            count=10,
+            team_id=team_id
         )
         logger.info(f"Slack search results: {response}")
         return response.get("messages", {}).get("matches", [])
@@ -143,6 +144,7 @@ def handle_mention(event, say):
     user_message = event.get("text", "").strip()
     bot_user_id = event.get("bot_id", None) or app.client.auth_test()["user_id"]
     thread_ts = event.get("thread_ts", event["ts"])  # Use thread_ts if available, otherwise use message ts
+    team_id = event.get("team")
     logger.info(f"User mentioned Cal: {user_message}")
 
     try:
