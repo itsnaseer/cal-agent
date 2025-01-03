@@ -166,9 +166,10 @@ def process_event(event, say):
             return
 
         # Determine thread_ts or fallback to ts
-        thread_ts = event_data.get("thread_ts") or event_data.get("ts")
+        thread_ts = event_data.get("thread_ts")
         if not thread_ts:
-            logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
+            thread_ts = event.get("ts")
+            #logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
             return  # Exit early if no valid timestamp is found
 
         # Extract necessary details
