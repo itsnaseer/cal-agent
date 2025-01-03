@@ -170,16 +170,11 @@ def process_event(event, say):
         if not thread_ts:
             thread_ts = event.get("ts")
             logger.info(thread_ts)
-            #logger.warning("Missing thread_ts and ts in the event. Cannot proceed.")
-            return  # Exit early if no valid timestamp is found
 
         # Extract necessary details
         user_message = event_data.get("text", "").strip()
         channel_id = event_data.get("channel")
         team_id = event_data.get("team")
-
-        # Log the extracted data for debugging
-        logger.info(f"Processing event: user_message='{user_message}', thread_ts='{thread_ts}', channel_id='{channel_id}'")
 
         # Fetch context if part of a thread
         message_context = ""
