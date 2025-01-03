@@ -238,12 +238,14 @@ def process_event(event, say):
 
 # Event Listener: Handle Mentions
 @app.event("app_mention")
-def handle_mention(event, say):
+def handle_mention(event, say, ack):
+    ack()
     process_event(event,say)
 
 # Handle agent DMs
 @app.event("message")
-def handle_message_im(event, say):
+def handle_message_im(event, say, ack):
+    ack()
     process_event(event, say)
 
 # @app.event("assistant_thread_started")
