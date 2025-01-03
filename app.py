@@ -55,7 +55,7 @@ def refine_query(user_query, bot_user_id):
         return user_query  # Fallback to original query
 
 # Step 2: Slack Search Functionality
-def search_slack(refined_query):
+def search_slack(refined_query, team_id):
     """
     Search Slack using the refined query.
     """
@@ -152,7 +152,7 @@ def handle_mention(event, say):
         refined_query = refine_query(user_message, bot_user_id)
 
         # Step 2: Search Slack
-        slack_results = search_slack(refined_query)
+        slack_results = search_slack(refined_query, team_id)
 
         # Step 3: Format Response
         response = format_combined_results(slack_results)
@@ -179,7 +179,7 @@ def handle_message_im(event, say):
         refined_query = refine_query(text, bot_user_id=app.client.auth_test()["user_id"])
 
         # Perform Slack search based on the refined query
-        slack_results = search_slack(refined_query)
+        slack_results = search_slack(refined_query, team_id)
 
         # Format the response using AI summarization
         response = format_combined_results(slack_results)
