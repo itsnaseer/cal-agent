@@ -5,6 +5,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from openai import ChatCompletion
 from dotenv import load_dotenv
 import ast
+import json
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +35,7 @@ def refine_query(user_query, bot_user_id):
 
         # Send to OpenAI for refinement
         response = ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an intelligent assistant. Simplify and optimize search queries for Slack."},
                 {"role": "user", "content": f"Turn this message into a Slack Search query: {user_query}. Only return the query itself. Do not include any commands or filters for Slack to execute. "}
@@ -110,7 +111,7 @@ def format_combined_results(slack_results):
 
             # Call OpenAI for summarization
             response = ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-3.5-turbo",
                 messages=openai_messages,
                 api_key=OPENAI_API_KEY,
             )
@@ -141,12 +142,16 @@ def format_combined_results(slack_results):
 
 def summarize_thread(message_context):
     thread_summary=ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an intelligent assistant."},
+                {"role": "system", "content": "You are an intelligent Slack assistant."},
                  {
                     "role": "user",
-                    "content": (f"Summarize the following messages:\n{message_context}."),
+                    "content": (
+                        "When referring to a user, format the ID as a Slack Bolt user tag, <@userID>"
+                        f"Summarize the following messages:\n{message_context}."
+                                
+                                ),
                 },
             ],
             api_key=OPENAI_API_KEY
@@ -156,66 +161,73 @@ def summarize_thread(message_context):
 
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
-    try:
-        #ignore message deleted events
-        if event.get("subtype") == "message_deleted":
-            logger.info("Ignoring deleted message event.")
-            return
-        # pull out relevant message details from the payload
-        user_message = event.get("text", "").strip()
-        message_ts = event.get("ts")
-        bot_user_id = app.client.auth_test()["user_id"]
-        thread_ts = event.get("thread_ts", event["ts"])  #Use thread_ts if available, otherwise use message ts
-        team_id = event.get("team")
-        channel_id=event.get("channel")
+    thread_ts = event.get("ts")  #Use thread_ts if available, otherwise use message ts
+   
+    # Determine message subtype
+    message_subtype=event.get("subtype")
+    logger.info(f"Message subtype: {message_subtype}")
 
-        message_context = ""
-        if "thread_ts" in event:
-            try:
-                replies = app.client.conversations_replies(
-                    channel=channel_id, ts=thread_ts
+
+
+    
+
+    # Proceed if it's not a message_deleted event
+    if message_subtype != "message_deleted" and message_subtype != "message_changed":
+        try:
+            # pull out relevant message details from the payload
+            user_message = event.get("text", "").strip()
+            # message_ts = event.get("ts")
+            bot_user_id = app.client.auth_test()["user_id"]  
+            team_id = event.get("team")
+            channel_id=event.get("channel")
+
+            #get message context if possible
+            message_context = ""
+            if "thread_ts" in event:
+                # Fetch all messages in the thread
+                replies_response = app.client.conversations_replies(
+                    channel=channel_id, ts=event["thread_ts"]
                 )
+                thread_messages = replies_response.get("messages", [])
+
+                # Traverse the thread messages to build the context
                 message_context = "\n".join(
-                     [
-                        f"<@{reply.get('user', 'unknown')}>: {reply.get('text', '')}"
-                        for reply in replies.get("messages", [])
+                    [
+                        f"<@{msg.get('user', 'unknown')}>: {msg.get('text', '').strip()}"
+                        for msg in thread_messages
                     ]
                 )
-            except Exception as e:
-                logger.warning(f"failed to fetch conversation contest {e}")
-        
-        # determine intent
-        response = ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are an intelligent assistant."},
-                 {
-                    "role": "user",
-                    "content": (
-                        f"Here are some messages to use as background: {message_context}. "
-                        f"Use that context to determine the intent of this message: {user_message}. "
-                        f"Respond with JSON {{'intent': 'Slack Search', 'Other', 'Summarize Thread'}}."
-                    ),
-                },
-            ],
-            api_key=OPENAI_API_KEY
-        )
+            logger.info(f"Message context {message_context}")
 
-        # Parse the response to extract the intent
-        assistant_response = response["choices"][0]["message"]["content"].strip()
-        try:
-            # Extract the assistant's response content
-            assistant_response = response["choices"][0]["message"]["content"].strip()
-            
-            # Safely parse the JSON-like string using ast.literal_eval
-            try:
-                intent_data = ast.literal_eval(assistant_response)
-                refined_intent = intent_data.get("intent", "Other")
-            except (ValueError, SyntaxError):
-                logger.error("Failed to parse response with ast.literal_eval. Falling back to default intent.")
-                refined_intent = "Other"
+            # Get the user info
+            user_id = event.get("user")
+            logger.info(user_id)
+            if user_id:
+                user_info = app.client.users_info(user=user_id)
+                user_name = user_info.get("user", {}).get("real_name")  # Default to "unknown" if name not found
+            else:
+                user_name = "unknown"
+            logger.info(user_name)
+    
+            # determine intent
+            response = ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are an intelligent assistant."},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Here are some messages to use as background: {message_context}. "
+                            f"Use those messages context to determine the intent of this message from {user_name}: {user_message}. "
+                            f"Only respond with one of the following options: Slack Search, Other, Summarize Thread. Do not include any additional context or commentary in the response."
+                        ),
+                    },
+                ],
+                api_key=OPENAI_API_KEY,
+            )
 
-            logger.info(f"Determined intent: {refined_intent}")
+            refined_intent = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Refined intent: {refined_intent}")
 
             # Handle intents
             if refined_intent == "Slack Search":
@@ -227,14 +239,11 @@ def process_event(event, say):
                 response=summarize_thread(message_context)
                 say(text=response, thread_ts=thread_ts)
             else:
-                say("Other - I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
+                say(f"{user_name}: Other - I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
+
         except Exception as e:
             logger.error(f"Error processing event: {e}")
             say(text="I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
-    
-    except Exception as e:
-        logger.error(f"Error processing event: {e}")
-        say(text="I'm sorry, I couldn't process your request.", thread_ts=thread_ts)
 
 # Event Listener: Handle Mentions
 @app.event("app_mention")
