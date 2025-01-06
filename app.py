@@ -131,7 +131,7 @@ def format_combined_results(slack_results):
             text_preview = msg.get("text", "").replace("\n", " ").strip()
             permalink = msg.get("permalink", "#")
             detailed_results.append(
-                f"- In *#{channel_name}*, <@{user_id}> posted:\n> {text_preview}\n[View Message]({permalink})"
+                f"- In *<#{channel_name}>*, <@{user_id}> posted:\n> {text_preview}\n[View Message]({permalink})"
             )
     else:
         detailed_results.append("_No relevant messages found in Slack._")
