@@ -141,7 +141,7 @@ def format_combined_results(slack_results):
         detailed_results.append("_No relevant messages found in Slack._")
 
     # Step 3: Combine Summary and Results
-    response = f"{summary}" + "sources" + ", ".join({detailed_results})
+    response = f"{summary}" + "sources" + ", ".join(detailed_results)
     return response
 
 def summarize_thread(message_context):
@@ -233,10 +233,8 @@ def process_event(event, say):
             # Handle intents
             if refined_intent == "Slack Search":
                 refined_query = refine_query(user_message, bot_user_id)
-                # refined_query="test" #skipped refinement for testing
                 slack_results = search_slack(refined_query, team_id)
                 response = format_combined_results(slack_results)
-                # response="hello, world" #skipped response creation for testing
                 blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": response}}]
                 logger.info("Posting chat_postMessage from Slack Search case")
                 app.client.chat_postMessage(
