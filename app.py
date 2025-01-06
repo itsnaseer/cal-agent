@@ -265,12 +265,12 @@ def handle_mention(event, say):
     process_event(event,say)
 
 # Handle agent DMs - removing to focus on agent and app-mention experience
-# @app.event("message")
-# def handle_message_im(event, say):
-#     global event_count
-#     event_count+=1
-#     logger.info(f"started handle_message_im {event_count}")
-#     process_event(event, say)
+@app.event("message.im")
+def handle_message_im(event, say):
+    global event_count
+    event_count+=1
+    logger.info(f"started handle_message_im {event_count}")
+    process_event(event, say)
 
 @app.event("assistant_thread_started")
 def handle_assistant_thread_started(event,say):
