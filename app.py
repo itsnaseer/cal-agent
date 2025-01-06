@@ -194,7 +194,8 @@ def process_event(event, say):
                 message_context = "\n".join(
                     [
                         f"<@{msg.get('user', 'unknown')}>: {msg.get('text', '').strip()}"
-                        for msg in thread_messages
+                         for msg in thread_messages[:10] #added [:10] to only take the first 10 messages as context
+                        
                     ]
                 )
             logger.info(f"Message context {message_context}")
@@ -207,7 +208,7 @@ def process_event(event, say):
                 user_name = user_info.get("user", {}).get("real_name")  # Default to "unknown" if name not found
             else:
                 user_name = "unknown"
-            logger.info(user_name)
+            logger.info(f"User Name: {user_name}")
     
             # determine intent
             response = ChatCompletion.create(
