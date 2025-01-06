@@ -276,7 +276,10 @@ def handle_mention(event, say):
 
 @app.event("assistant_thread_started")
 def handle_assistant_thread_started(event,say):
-    process_event(event,say)
+    global event_count
+    event_count+=1
+    logger.info(f"started handle_assitant_thread_started {event_count}")
+    #process_event(event,say)
 
 # Start the App
 if __name__ == "__main__":
