@@ -265,7 +265,7 @@ def handle_mention(event, say):
     process_event(event,say)
 
 # Handle agent DMs - removing to focus on agent and app-mention experience
-@app.event("message.im")
+@app.event("message_im")
 def handle_message_im(event, say):
     global event_count
     event_count+=1
