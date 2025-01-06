@@ -16,6 +16,8 @@ app = App(token=os.getenv("SLACK_BOT_TOKEN"))
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+event_count=0
+logger.info(f"event_count:{event_count}")
 
 # Tokens and API Keys
 SLACK_USER_TOKEN = os.getenv("SLACK_USER_TOKEN")
@@ -50,7 +52,6 @@ def refine_query(user_query, bot_user_id):
         if "from:@" in refined_query or not refined_query:
             logger.warning("Refined query was overly restrictive. Falling back to original.")
             return user_query
-
         return refined_query
     except Exception as e:
         logger.error(f"Error refining query: {e}")
@@ -65,10 +66,11 @@ def search_slack(refined_query, team_id):
         response = app.client.search_all(
             token=SLACK_USER_TOKEN,  # Use user token
             query=refined_query,
-            count=10,
             team_id=team_id
         )
-        logger.info(f"Slack search results: {response}")
+        responses_count=response.get("messages", {}).get("total",0)
+        logger.info(f"Number of results: {responses_count}")
+        #logger.info(f"Slack search results: {response}")
         return response.get("messages", {}).get("matches", [])
     except Exception as e:
         logger.error(f"Slack search error: {e}")
@@ -125,19 +127,21 @@ def format_combined_results(slack_results):
     # Step 2: Format Slack Results
     detailed_results = []
     if slack_results:
+        message_num=0
         for msg in slack_results[:5]:  # Limit to top 5 results
-            channel_name = msg["channel"]["name"]
-            user_id = msg.get("user", "unknown")
-            text_preview = msg.get("text", "").replace("\n", " ").strip()
-            permalink = msg.get("permalink", "#")
+            # channel_name = msg["channel"]["name"]
+            # user_id = msg.get("user", "unknown")
+            # text_preview = msg.get("text", "").replace("\n", " ").strip()
+            permalink = msg.get("permalink", "https://fake.link")
+            message_num+=1
             detailed_results.append(
-                f"- In <#{channel_name}>, <@{user_id}> posted:\n> {text_preview}\n<View Message|{permalink}>"
+                f"<{permalink}|{message_num}>"
             )
     else:
         detailed_results.append("_No relevant messages found in Slack._")
 
     # Step 3: Combine Summary and Results
-    response = f"{summary}\n\n" + "\n".join(detailed_results)
+    response = f"{summary}" + "sources" + ", ".join({detailed_results})
     return response
 
 def summarize_thread(message_context):
@@ -149,8 +153,7 @@ def summarize_thread(message_context):
                     "role": "user",
                     "content": (
                         "When referring to a user, format the ID as a Slack Bolt user tag, <@userID>"
-                        f"Summarize the following messages:\n{message_context}."
-                                
+                        f"Summarize the following messages:\n{message_context}." 
                                 ),
                 },
             ],
@@ -161,22 +164,20 @@ def summarize_thread(message_context):
 
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
-    thread_ts = event.get("ts")  #Use thread_ts if available, otherwise use message ts
-   
+    
+    
+    thread_ts = event.get("ts")  #Get the message timestamp
+    logger.info(f"started process_event - event_count: {event_count}") #keeping an eye out for duplicate events
+
     # Determine message subtype
     message_subtype=event.get("subtype")
     logger.info(f"Message subtype: {message_subtype}")
-
-
-
-    
 
     # Proceed if it's not a message_deleted event
     if message_subtype != "message_deleted" and message_subtype != "message_changed":
         try:
             # pull out relevant message details from the payload
             user_message = event.get("text", "").strip()
-            # message_ts = event.get("ts")
             bot_user_id = app.client.auth_test()["user_id"]  
             team_id = event.get("team")
             channel_id=event.get("channel")
@@ -195,7 +196,6 @@ def process_event(event, say):
                     [
                         f"<@{msg.get('user', 'unknown')}>: {msg.get('text', '').strip()}"
                          for msg in thread_messages[:5] #added [:5] to only take the first 5 messages as context
-                        
                     ]
                 )
             logger.info(f"Message context {message_context}")
@@ -229,19 +229,23 @@ def process_event(event, say):
 
             refined_intent = response["choices"][0]["message"]["content"].strip()
             logger.info(f"Refined intent: {refined_intent}")
-            refined_intent="Summarize Thread" #troubleshooting intent handling
 
             # Handle intents
             if refined_intent == "Slack Search":
                 refined_query = refine_query(user_message, bot_user_id)
+                # refined_query="test" #skipped refinement for testing
                 slack_results = search_slack(refined_query, team_id)
                 response = format_combined_results(slack_results)
-                # say(text=response, thread_ts=thread_ts)
+                # response="hello, world" #skipped response creation for testing
                 blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": response}}]
+                logger.info("Posting chat_postMessage from Slack Search case")
                 app.client.chat_postMessage(
                     channel=channel_id,
                     blocks=blocks,
-                    thread_ts=thread_ts
+                    text="here are the results",
+                    thread_ts=thread_ts,
+                    unfurl_links=False,  # Disable link unfurling
+                    unfurl_media=False   # Disable media unfurling
                 )
 
             elif refined_intent == "Summarize Thread":
@@ -257,16 +261,22 @@ def process_event(event, say):
 # Event Listener: Handle Mentions
 @app.event("app_mention")
 def handle_mention(event, say):
+    global event_count
+    event_count+=1
+    logger.info(f"started handler_mention {event_count}")
     process_event(event,say)
 
-# Handle agent DMs
-@app.event("message")
-def handle_message_im(event, say):
-    process_event(event, say)
+# Handle agent DMs - removing to focus on agent and app-mention experience
+# @app.event("message")
+# def handle_message_im(event, say):
+#     global event_count
+#     event_count+=1
+#     logger.info(f"started handle_message_im {event_count}")
+#     process_event(event, say)
 
-# @app.event("assistant_thread_started")
-# def handle_assistant_thread_started(event,say):
-#     process_event(event,say)
+@app.event("assistant_thread_started")
+def handle_assistant_thread_started(event,say):
+    process_event(event,say)
 
 # Start the App
 if __name__ == "__main__":
