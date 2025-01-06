@@ -131,7 +131,7 @@ def format_combined_results(slack_results):
             text_preview = msg.get("text", "").replace("\n", " ").strip()
             permalink = msg.get("permalink", "#")
             detailed_results.append(
-                f"- In *<#{channel_name}>*, <@{user_id}> posted:\n> {text_preview}\n[View Message]({permalink})"
+                f"- In <#{channel_name}>, <@{user_id}> posted:\n> {text_preview}\n<View Message|{permalink}>"
             )
     else:
         detailed_results.append("_No relevant messages found in Slack._")
@@ -194,7 +194,7 @@ def process_event(event, say):
                 message_context = "\n".join(
                     [
                         f"<@{msg.get('user', 'unknown')}>: {msg.get('text', '').strip()}"
-                         for msg in thread_messages[:10] #added [:10] to only take the first 10 messages as context
+                         for msg in thread_messages[:5] #added [:5] to only take the first 5 messages as context
                         
                     ]
                 )
@@ -229,18 +229,26 @@ def process_event(event, say):
 
             refined_intent = response["choices"][0]["message"]["content"].strip()
             logger.info(f"Refined intent: {refined_intent}")
+            refined_intent="Summarize Thread" #troubleshooting intent handling
 
             # Handle intents
             if refined_intent == "Slack Search":
                 refined_query = refine_query(user_message, bot_user_id)
                 slack_results = search_slack(refined_query, team_id)
                 response = format_combined_results(slack_results)
-                say(text=response, thread_ts=thread_ts)
+                # say(text=response, thread_ts=thread_ts)
+                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": response}}]
+                app.client.chat_postMessage(
+                    channel=channel_id,
+                    blocks=blocks,
+                    thread_ts=thread_ts
+                )
+
             elif refined_intent == "Summarize Thread":
                 response=summarize_thread(message_context)
                 say(text=response, thread_ts=thread_ts)
             else:
-                say(f"{user_name}: Other - I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
+                say(f"{user_name}-- I don't have that skill yet.", thread_ts=thread_ts)
 
         except Exception as e:
             logger.error(f"Error processing event: {e}")
