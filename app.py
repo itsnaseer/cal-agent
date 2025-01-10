@@ -4,8 +4,6 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from openai import ChatCompletion
 from dotenv import load_dotenv
-import ast
-import json
 
 # Load environment variables
 load_dotenv()
@@ -37,7 +35,7 @@ def refine_query(user_query, bot_user_id):
 
         # Send to OpenAI for refinement
         response = ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-3.5-turbo-16k",
             messages=[
                 {"role": "system", "content": "You are an intelligent assistant. Simplify and optimize search queries for Slack."},
                 {"role": "user", "content": f"Turn this message into a Slack Search query: {user_query}. Only return the query itself. Do not include any commands or filters for Slack to execute. "}
@@ -113,14 +111,14 @@ def format_combined_results(slack_results):
 
             # Call OpenAI for summarization
             response = ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="text-embedding-3-large",
                 messages=openai_messages,
                 api_key=OPENAI_API_KEY,
             )
             summary = response["choices"][0]["message"]["content"].strip()
         except Exception as e:
             logging.error(f"Error summarizing with OpenAI: {e}")
-            summary = "I found some relevant messages in Slack, but I couldn't generate a summary right now. Here are the details:"
+            summary = "I found some relevant messages in Slack, but I couldn't generate a summary right now. Here are the sources: "
     else:
         summary = "I couldn't find any relevant messages in Slack."
 
@@ -141,12 +139,12 @@ def format_combined_results(slack_results):
         detailed_results.append("_No relevant messages found in Slack._")
 
     # Step 3: Combine Summary and Results
-    response = f"{summary}" + "sources" + ", ".join(detailed_results)
+    response = f"{summary}" + ", ".join(detailed_results)
     return response
 
 def summarize_thread(message_context):
     thread_summary=ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are an intelligent Slack assistant."},
                  {
@@ -208,11 +206,11 @@ def process_event(event, say):
                 user_name = user_info.get("user", {}).get("real_name")  # Default to "unknown" if name not found
             else:
                 user_name = "unknown"
-            logger.info(f"User Name: {user_name}")
+            logger.info("Determining Intent...")
     
             # determine intent
             response = ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are an intelligent assistant."},
                     {
@@ -250,6 +248,13 @@ def process_event(event, say):
                 response=summarize_thread(message_context)
                 say(text=response, thread_ts=thread_ts)
             else:
+                # Get a list of published workflows
+                # all_workflows = app.client.admin_workflows_search(
+                #     token=SLACK_USER_TOKEN, 
+                #     publish_status="published",
+                #     trigger_type_id="Ftt0101"
+                #     )
+                # list_of_workflows=all_workflows
                 say(f"{user_name}-- I don't have that skill yet.", thread_ts=thread_ts)
 
         except Exception as e:
@@ -273,12 +278,12 @@ def handle_direct_message(event, say):
         logger.info(f"started handle_message_im {event_count}")
         process_event(event, say)
 
-# @app.event("assistant_thread_started")
-# def handle_assistant_thread_started(event,say):
-#     global event_count
-#     event_count+=1
-#     logger.info(f"started handle_assitant_thread_started {event_count}")
-#     #process_event(event,say)
+@app.event("assistant_thread_started")
+def handle_assistant_thread_started(event,say):
+    global event_count
+    event_count+=1
+    logger.info(f"started handle_assitant_thread_started {event_count}")
+    #process_event(event,say)
 
 # Start the App
 if __name__ == "__main__":
