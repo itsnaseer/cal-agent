@@ -87,7 +87,7 @@ def fetch_public_data(refined_query):
 # Step 4: Combine and Format Results
 def format_combined_results(slack_results):
     """
-    Summarize and format Slack search results into a user-friendly response.
+    Summarize and format Slack search results into a user-friendly response. 
     """
 
 #    public_data = public_data or []
@@ -111,7 +111,7 @@ def format_combined_results(slack_results):
 
             # Call OpenAI for summarization
             response = ChatCompletion.create(
-                model="text-embedding-3-large",
+                model="gpt-4o-mini",
                 messages=openai_messages,
                 api_key=OPENAI_API_KEY,
             )
@@ -127,9 +127,15 @@ def format_combined_results(slack_results):
     if slack_results:
         message_num=0
         for msg in slack_results[:5]:  # Limit to top 5 results
-            # channel_name = msg["channel"]["name"]
-            # user_id = msg.get("user", "unknown")
-            # text_preview = msg.get("text", "").replace("\n", " ").strip()
+            """
+            This used to generate message previews but that gave us context window issues in the LLM and Slack Block Kit. We're falling back to summary with links to the source material. 
+
+            channel_name = msg["channel"]["name"]
+            user_id = msg.get("user", "unknown")
+            text_preview = msg.get("text", "").replace("\n", " ").strip()
+
+            """
+
             permalink = msg.get("permalink", "https://fake.link")
             message_num+=1
             detailed_results.append(
@@ -160,9 +166,35 @@ def summarize_thread(message_context):
     refined_summary=thread_summary["choices"][0]["message"]["content"].strip()
     return refined_summary
 
+def search_workflows(user_message):
+    """
+    Search Slack workflows using admin.workflows.search and match against the user's message.
+    """
+    try:
+        # Call Slack API to fetch workflows
+        response = app.client.admin_workflows_search(
+            token=SLACK_USER_TOKEN,
+            query=user_message,  # Use user's message as search query
+            limit=50  # Adjust the limit as needed
+        )
+        
+        workflows = response.get("workflows", [])
+        list_of_workflows = []
+        
+        # Traverse workflows to collect relevant details
+        for workflow in workflows:
+            title = workflow.get("title", "Unknown Title")
+            description = workflow.get("description", "No Description")
+            list_of_workflows.append({"title": title, "description": description})
+        
+        return list_of_workflows
+    except Exception as e:
+        logger.error(f"Error searching workflows: {e}")
+        return []
+
+
 # Common Processing Function-- parse the message and prepare for next steps. 
 def process_event(event, say):
-    
     
     thread_ts = event.get("ts")  #Get the message timestamp
     logger.info(f"started process_event - event_count: {event_count}") #keeping an eye out for duplicate events
@@ -247,15 +279,34 @@ def process_event(event, say):
             elif refined_intent == "Summarize Thread":
                 response=summarize_thread(message_context)
                 say(text=response, thread_ts=thread_ts)
-            else:
-                # Get a list of published workflows
-                # all_workflows = app.client.admin_workflows_search(
-                #     token=SLACK_USER_TOKEN, 
-                #     publish_status="published",
-                #     trigger_type_id="Ftt0101"
-                #     )
-                # list_of_workflows=all_workflows
-                say(f"{user_name}-- I don't have that skill yet.", thread_ts=thread_ts)
+            else:  # refined_intent == "Other"
+                # Search for workflows
+                workflows = search_workflows(user_message)
+
+                # Format workflows for OpenAI
+                formatted_workflows = "\n".join(
+                    [f"Title: {wf['title']}, Description: {wf['description']}" for wf in workflows]
+                )
+                workflow_match = ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are an intelligent Slack assistant."},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"User message: {user_message}\n"
+                                f"Available workflows:\n{formatted_workflows}\n"
+                                f"Determine which workflow, if any, matches the user's request. Respond with the workflow title or 'None'."
+                            ),
+                        },
+                    ],
+                    api_key=OPENAI_API_KEY,
+                )
+                match_result = workflow_match["choices"][0]["message"]["content"].strip()
+                if match_result.lower() != "none":
+                    say(f"You can use the following workflow: `{match_result}`", thread_ts=thread_ts)
+                else:
+                    say("I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
 
         except Exception as e:
             logger.error(f"Error processing event: {e}")
