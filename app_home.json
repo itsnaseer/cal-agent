@@ -1,0 +1,21 @@
+{
+	"type": "home",
+	"blocks": [
+		{
+			"type": "header",
+			"text": {
+				"type": "plain_text",
+				"text": "Meet Cal",
+				"emoji": true 
+                
+			}
+		},
+		{
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "Cal is your Collaborative Automation Liaison. \nMore to come on this app..."
+			}
+		}
+	]
+}

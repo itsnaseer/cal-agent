@@ -1,9 +1,11 @@
 import os
 import logging
+import json
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from openai import ChatCompletion
 from dotenv import load_dotenv
+
 
 # Load environment variables
 load_dotenv()
@@ -89,8 +91,8 @@ def format_combined_results(slack_results):
     """
     Summarize and format Slack search results into a user-friendly response. 
     """
-
-#    public_data = public_data or []
+    plain_text_results = ""
+#   public_data = public_data or []
 
     # Step 1: Summarize Slack Results using OpenAI
     if slack_results:
@@ -103,50 +105,31 @@ def format_combined_results(slack_results):
                 ]
             )
 
-            # Prepare the messages for OpenAI
-            openai_messages = [
-                {"role": "system", "content": "You are an assistant that summarizes messages."},
-                {"role": "user", "content": f"Summarize these messages in 2-3 sentences:\n{plain_text_results}"}
-            ]
-
-            # Call OpenAI for summarization
-            response = ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=openai_messages,
-                api_key=OPENAI_API_KEY,
-            )
-            summary = response["choices"][0]["message"]["content"].strip()
         except Exception as e:
             logging.error(f"Error summarizing with OpenAI: {e}")
-            summary = "I found some relevant messages in Slack, but I couldn't generate a summary right now. Here are the sources: "
+            plain_text_results = "I found some relevant messages in Slack, but I couldn't generate a summary right now. Here are the sources: "
     else:
-        summary = "I couldn't find any relevant messages in Slack."
+        plain_text_results = "I couldn't find any relevant messages in Slack."
 
     # Step 2: Format Slack Results
-    detailed_results = []
+    search_links = "Relevant messages: "
     if slack_results:
         message_num=0
         for msg in slack_results[:5]:  # Limit to top 5 results
             """
-            This used to generate message previews but that gave us context window issues in the LLM and Slack Block Kit. We're falling back to summary with links to the source material. 
-
-            channel_name = msg["channel"]["name"]
-            user_id = msg.get("user", "unknown")
-            text_preview = msg.get("text", "").replace("\n", " ").strip()
-
+            This used to generate message previews but that gave us context window issues in the LLM and Slack Block Kit. 
+            We're falling back to summary with links to the source material.
             """
 
             permalink = msg.get("permalink", "https://fake.link")
             message_num+=1
-            detailed_results.append(
-                f"<{permalink}|{message_num}>"
+            search_links+=(
+                f"<{permalink}|[{message_num}]>, "
             )
     else:
-        detailed_results.append("_No relevant messages found in Slack._")
-
-    # Step 3: Combine Summary and Results
-    response = f"{summary}" + ", ".join(detailed_results)
-    return response
+        search_links="_No relevant messages found in Slack._"
+    
+    return plain_text_results, search_links
 
 def summarize_thread(message_context):
     thread_summary=ChatCompletion.create(
@@ -166,15 +149,14 @@ def summarize_thread(message_context):
     refined_summary=thread_summary["choices"][0]["message"]["content"].strip()
     return refined_summary
 
-def search_workflows(user_message):
+def get_workflows():
     """
-    Search Slack workflows using admin.workflows.search and match against the user's message.
+    Search Slack workflows using admin.workflows.search 
     """
     try:
         # Call Slack API to fetch workflows
         response = app.client.admin_workflows_search(
             token=SLACK_USER_TOKEN,
-            query=user_message,  # Use user's message as search query
             limit=50  # Adjust the limit as needed
         )
         
@@ -232,12 +214,15 @@ def process_event(event, say):
 
             # Get the user info
             user_id = event.get("user")
-            logger.info(user_id)
+            
             if user_id:
                 user_info = app.client.users_info(user=user_id)
-                user_name = user_info.get("user", {}).get("real_name")  # Default to "unknown" if name not found
+                user_name = user_info.get("user", {}).get("real_name")  
+                
             else:
                 user_name = "unknown"
+            logger.info(user_name)
+
             logger.info("Determining Intent...")
     
             # determine intent
@@ -248,9 +233,8 @@ def process_event(event, say):
                     {
                         "role": "user",
                         "content": (
-                            f"Here are some messages to use as background: {message_context}. "
-                            f"Use those messages context to determine the intent of this message from {user_name}: {user_message}. "
-                            f"Only respond with one of the following options: Slack Search, Other, Summarize Thread. Do not include any additional context or commentary in the response."
+                            f"Determine the intent of this message from {user_name}: {user_message}. "
+                            f"Only respond with one of the following options: Summarize Thread, Other. Do not include any additional context or commentary in the response."
                         ),
                     },
                 ],
@@ -258,54 +242,59 @@ def process_event(event, say):
             )
 
             refined_intent = response["choices"][0]["message"]["content"].strip()
+            
             logger.info(f"Refined intent: {refined_intent}")
 
-            # Handle intents
-            if refined_intent == "Slack Search":
-                refined_query = refine_query(user_message, bot_user_id)
-                slack_results = search_slack(refined_query, team_id)
-                response = format_combined_results(slack_results)
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": response}}]
-                logger.info("Posting chat_postMessage from Slack Search case")
-                app.client.chat_postMessage(
-                    channel=channel_id,
-                    blocks=blocks,
-                    text="here are the results",
-                    thread_ts=thread_ts,
-                    unfurl_links=False,  # Disable link unfurling
-                    unfurl_media=False   # Disable media unfurling
-                )
+            # Handle intents, i.e. "Topics"
 
-            elif refined_intent == "Summarize Thread":
+            if refined_intent == "Summarize Thread":
                 response=summarize_thread(message_context)
                 say(text=response, thread_ts=thread_ts)
+
             else:  # refined_intent == "Other"
                 # Search for workflows
-                workflows = search_workflows(user_message)
-
+                workflows = get_workflows()
                 # Format workflows for OpenAI
-                formatted_workflows = "\n".join(
+                workflow_context = "\n".join(
                     [f"Title: {wf['title']}, Description: {wf['description']}" for wf in workflows]
                 )
-                workflow_match = ChatCompletion.create(
+
+                # Search slack for additional context
+                refined_query = refine_query(user_message, bot_user_id)
+                slack_results = search_slack(refined_query, team_id)
+                search_context, references = format_combined_results(slack_results)
+                
+                cal_prompt = ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": "You are an intelligent Slack assistant."},
+                        {"role": "system", "content": "You are a friendly, intelligent assistant designed to analyze Slack conversations, search relevant Slack data, and recommend workflows or actionable steps to address user requests efficiently."},
                         {
                             "role": "user",
                             "content": (
-                                f"User message: {user_message}\n"
-                                f"Available workflows:\n{formatted_workflows}\n"
-                                f"Determine which workflow, if any, matches the user's request. Respond with the workflow title or 'None'."
+                                f"Here is the context of the current conversation thread:\n{message_context}"
+                                f"Aditinally, I have gathered these relevant Slack search results to agument the context:\n{search_context}"
+                                f"Finally, consider these workflows available in the Slack workspace:\n{workflow_context}\n"
+                                f"Respond directly to this message from {user_name}: {user_message}. "
+                                f"Your response should be 3-5 sentences. Your response should be confident, witty, conversational, intelligent, friendly, helpful, clear, and concise. "
                             ),
                         },
                     ],
                     api_key=OPENAI_API_KEY,
                 )
-                match_result = workflow_match["choices"][0]["message"]["content"].strip()
-                if match_result.lower() != "none":
-                    say(f"You can use the following workflow: `{match_result}`", thread_ts=thread_ts)
-                else:
+                cal_response = cal_prompt["choices"][0]["message"]["content"].strip()
+                try:
+                    blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": f"{cal_response}\n{references}"}}]
+
+                    app.client.chat_postMessage(
+                        channel=channel_id,
+                        blocks=blocks,
+                        text="bot response",
+                        thread_ts=thread_ts,
+                        unfurl_links=False,  # Disable link unfurling
+                        unfurl_media=False   # Disable media unfurling
+                    )
+
+                except Exception as e:
                     say("I don't have that skill yet. Tell Naseer to get on it!", thread_ts=thread_ts)
 
         except Exception as e:
@@ -335,6 +324,24 @@ def handle_assistant_thread_started(event,say):
     event_count+=1
     logger.info(f"started handle_assitant_thread_started {event_count}")
     #process_event(event,say)
+
+@app.event("app_home_opened")
+def app_home_opened(event,say):
+    try:
+        with open("app_home.json","r") as file:
+            app_home_json = json.load(file)
+    except Exception as e:
+        logger.error(f"Error loading app_home.json to app_home_json: {e}")
+
+    try:
+
+        app.client.views_publish(
+            user_id=event["user"],
+            view=app_home_json
+        )
+
+    except Exception as e:
+        logger.error(f"Error publishing home tab: {e}")
 
 # Start the App
 if __name__ == "__main__":

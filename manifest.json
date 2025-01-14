@@ -1,0 +1,61 @@
+{
+    "display_information": {
+        "name": "CAL",
+        "description": "Your collaborative automation liaison (CAL)",
+        "background_color": "#4a154b"
+    },
+    "features": {
+        "app_home": {
+            "home_tab_enabled": true,
+            "messages_tab_enabled": true,
+            "messages_tab_read_only_enabled": false
+        },
+        "bot_user": {
+            "display_name": "CAL",
+            "always_online": true
+        },
+        "assistant_view": {
+            "assistant_description": "Your collaborative automation liaison (CAL)",
+            "suggested_prompts": []
+        }
+    },
+    "oauth_config": {
+        "scopes": {
+            "user": [
+                "bookmarks:read",
+                "channels:history",
+                "channels:read",
+                "groups:history",
+                "search:read",
+                "admin.workflows:read"
+            ],
+            "bot": [
+                "assistant:write",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "im:history",
+                "im:write",
+                "users.profile:read",
+                "users:read",
+                "app_mentions:read"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "bot_events": [
+                "app_home_opened",
+                "app_mention",
+                "assistant_thread_started",
+                "message.im"
+            ]
+        },
+        "interactivity": {
+            "is_enabled": true
+        },
+        "org_deploy_enabled": true,
+        "socket_mode_enabled": true,
+        "token_rotation_enabled": false
+    }
+}
